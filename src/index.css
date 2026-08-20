@@ -1218,80 +1218,163 @@ body {
   gap: 1rem;
 }
 
-.sql-box-container {
-  background: #0f172a;
-  border-radius: var(--radius-md);
-  padding: 1rem;
-  color: #e2e8f0;
+/* Database Config Modal */
+.database-config-modal {
+  max-width: 680px;
 }
 
-.sql-box-header {
+.db-tabs-nav {
+  display: flex;
+  background: var(--color-bg-subtle);
+  padding: 0.5rem 1rem 0 1rem;
+  border-bottom: 1px solid var(--color-border);
+  gap: 0.5rem;
+  overflow-x: auto;
+}
+
+.db-tab-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.65rem;
-}
-
-.sql-title {
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-family: inherit;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #38bdf8;
-}
-
-.btn-copy-sql {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: #1e293b;
-  border: 1px solid #334155;
-  color: #f8fafc;
-  padding: 0.35rem 0.75rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  font-weight: 600;
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: var(--transition);
 }
 
-.btn-copy-sql:hover {
-  background: #334155;
+.db-tab-btn:hover {
+  color: var(--color-brand-dark);
+  background: rgba(255, 255, 255, 0.5);
 }
 
-.sql-code-snippet {
-  background: #090d16;
-  padding: 0.85rem;
-  border-radius: var(--radius-sm);
-  font-family: monospace;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  max-height: 160px;
-  overflow-y: auto;
-  color: #a5f3fc;
+.db-tab-btn.active {
+  background: #ffffff;
+  color: var(--color-brand-dark);
+  border-color: var(--color-border);
+  border-bottom-color: #ffffff;
+  margin-bottom: -1px;
 }
 
-.sql-hint {
-  font-size: 0.75rem;
-  color: #94a3b8;
-  margin-top: 0.5rem;
-}
-
-.btn-test-conn {
+.db-tab-label-row {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  background: #ffffff;
-  border: 1.5px solid var(--color-border);
-  padding: 0.6rem 1rem;
+}
+
+.active-provider-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: #dcfce7;
+  color: #15803d;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  border: 1px solid #86efac;
+}
+
+.db-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.db-info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 1rem;
   border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  font-weight: 600;
+  border: 1px solid;
+}
+
+.db-info-banner.neon-banner {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.db-info-banner.supabase-banner {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #115e59;
+}
+
+.db-info-banner.local-banner {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+.banner-text-col h4 {
+  font-size: 0.92rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+}
+
+.banner-text-col p {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.label-with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.btn-copy-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f1f5f9;
+  border: 1px solid var(--color-border);
+  color: var(--color-brand-dark);
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
   cursor: pointer;
   transition: var(--transition);
 }
 
-.btn-test-conn:hover {
-  background: var(--color-bg-subtle);
-  border-color: var(--color-primary);
+.btn-copy-code:hover {
+  background: #e2e8f0;
+}
+
+.sql-preview-box {
+  background: #0f172a;
+  border-radius: var(--radius-md);
+  padding: 0.85rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.sql-preview-box pre {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #38bdf8;
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.modal-footer-custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
 }
 
 .btn-cancel {

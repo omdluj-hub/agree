@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SignedConsentRecord, ConsentTermsSettings, ClinicInfo } from '../types';
-import { fetchConsentRecords, deleteConsentRecord, getSupabaseConfig } from '../lib/supabase';
+import { fetchConsentRecords, deleteConsentRecord, getActiveDbProvider } from '../lib/supabase';
 import { triggerPdfDownload, createPdfBlobUrl } from '../lib/pdfGenerator';
 import { isPasswordRequiredForDocs, isAdminPasswordSet } from '../lib/security';
 import { SecurityModal } from './SecurityModal';
@@ -25,7 +25,9 @@ import {
   Save,
   Check,
   Shield,
-  Database
+  Database,
+  Zap,
+  Flame
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -72,7 +74,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<SignedConsentRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const config = getSupabaseConfig();
+  const activeProvider = getActiveDbProvider();
+  const providerDisplay = activeProvider === 'neon' 
+    ? 'Neon (Vercel)' 
+    : activeProvider === 'supabase' 
+      ? 'Supabase' 
+      : '로컬 보관';
 
   const loadData = async (query = '') => {
     setLoading(true);
@@ -206,15 +213,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
             {isAdminPasswordSet() && <span className="secure-active-dot" />}
           </button>
 
-          {/* Supabase Config Button */}
+          {/* Database Config Button */}
           <button
             type="button"
             onClick={onOpenConfig}
-            className={`btn-supabase-status ${config.isConfigured ? 'connected' : 'local'}`}
+            className={`btn-supabase-status ${activeProvider !== 'local' ? 'connected' : 'local'}`}
           >
             <span className="status-indicator-dot" />
             <Database size={15} />
-            <span>{config.isConfigured ? 'Supabase 연동됨' : 'Supabase 설정'}</span>
+            <span>{providerDisplay}</span>
             <Settings size={14} className="settings-gear" />
           </button>
 
@@ -348,15 +355,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <HardDrive size={22} />
           </div>
           <div>
-            <span className="stat-label">스토리지 연동 상태</span>
+            <span className="stat-label">데이터베이스 연동 상태</span>
             <div className="stat-val-status">
-              {config.isConfigured ? (
+              {activeProvider === 'neon' ? (
                 <span className="text-success flex-center gap-1 font-bold">
-                  <CheckCircle2 size={16} /> Supabase 활성화됨
+                  <Zap size={16} className="text-emerald-500" /> Neon Postgres (Vercel)
+                </span>
+              ) : activeProvider === 'supabase' ? (
+                <span className="text-success flex-center gap-1 font-bold">
+                  <Flame size={16} className="text-emerald-600" /> Supabase 연동됨
                 </span>
               ) : (
                 <span className="text-warning flex-center gap-1 font-bold">
-                  로컬 모드 (클릭하여 설정)
+                  로컬 보관 (클릭하여 설정)
                 </span>
               )}
             </div>
@@ -454,8 +465,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </div>
                   </td>
                   <td>
-                    {record.pdf_path?.startsWith('local/') ? (
+                    {record.pdf_path?.startsWith('local/') || record.id?.startsWith('local_') ? (
                       <span className="badge-local">로컬 보관</span>
+                    ) : record.pdf_path?.startsWith('neon/') ? (
+                      <span className="badge-cloud-small" style={{ background: '#0284c7', color: '#ffffff' }}>Neon DB</span>
                     ) : (
                       <span className="badge-cloud-small">Supabase</span>
                     )}

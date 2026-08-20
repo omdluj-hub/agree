@@ -46,10 +46,23 @@ export interface SignedConsentRecord {
   created_at?: string;
 }
 
+export type DbProviderType = 'neon' | 'supabase' | 'local';
+
 export interface SupabaseConfig {
   url: string;
   anonKey: string;
   bucketName: string;
   tableName: string;
   isConfigured: boolean;
+}
+
+export interface NeonConfig {
+  isConfigured: boolean;
+  apiUrl: string; // e.g. '/api/consents'
+}
+
+export interface DatabaseSettings {
+  provider: DbProviderType;
+  supabase: SupabaseConfig;
+  neon: NeonConfig;
 }
