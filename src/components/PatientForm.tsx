@@ -413,12 +413,15 @@ export const PatientForm: React.FC<PatientFormProps> = ({
               </label>
               <div className="input-wrapper">
                 <input
-                  type="text"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="예: 20150512 또는 150512"
                   value={patientInfo.birthDate}
                   onChange={handleBirthDateChange}
                   className="form-input"
                   maxLength={10}
+                  autoComplete="bday"
                 />
               </div>
             </div>
@@ -447,6 +450,8 @@ export const PatientForm: React.FC<PatientFormProps> = ({
                 <div className="phone-rest-input-wrap">
                   <input
                     type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="1234-5678 (뒷자리 입력)"
                     value={phoneRest}
                     onChange={handlePhoneRestChange}
