@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { SignedConsentRecord, ConsentTermsSettings, ClinicInfo } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { SignedConsentRecord, ConsentTermsSettings, ClinicInfo, ConsentTermItem } from '../types';
 import { fetchConsentRecords, deleteConsentRecord, getActiveDbProvider } from '../lib/supabase';
 import { triggerPdfDownload, createPdfBlobUrl } from '../lib/pdfGenerator';
 import { isPasswordRequiredForDocs, isAdminPasswordSet } from '../lib/security';
@@ -27,7 +27,12 @@ import {
   Shield,
   Database,
   Zap,
-  Flame
+  Flame,
+  Filter,
+  Sparkles,
+  ShieldCheck,
+  CheckCheck,
+  Tag
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -38,6 +43,55 @@ interface AdminViewProps {
   onBackToPatient: () => void;
   consentSettings: ConsentTermsSettings;
   onUpdateConsentSettings: (settings: ConsentTermsSettings) => void;
+}
+
+export type ConsentFilterType = 'all' | 'optional' | 'required_only';
+
+// Helper function to analyze patient consent agreement breakdown
+export function analyzePatientConsent(
+  record: SignedConsentRecord,
+  consentSettings?: ConsentTermsSettings
+) {
+  const terms = consentSettings?.terms || [];
+  const agreedMap = record.agreed_items || {};
+
+  // Find defined optional terms in settings
+  const optionalTermsInSettings = terms.filter(t => t.category === 'optional');
+  
+  // Find which optional terms are agreed
+  const agreedOptionalTitles: string[] = [];
+
+  if (optionalTermsInSettings.length > 0) {
+    optionalTermsInSettings.forEach(t => {
+      if (agreedMap[t.id]) {
+        agreedOptionalTitles.push(t.title);
+      }
+    });
+  }
+
+  // Fallback check for any agreed item keys that are not standard required ones
+  const knownRequiredIds = new Set(['collectRequired', 'sensitiveInfo', 'uniqueIdInfo', ...terms.filter(t => t.category === 'required').map(t => t.id)]);
+  
+  Object.keys(agreedMap).forEach(key => {
+    if (agreedMap[key] === true && !knownRequiredIds.has(key)) {
+      const matchingTerm = terms.find(t => t.id === key);
+      const title = matchingTerm ? matchingTerm.title : (key === 'marketingOptional' || key === 'marketing' ? '진료예약/알림 마케팅 동의' : key);
+      if (!agreedOptionalTitles.includes(title)) {
+        agreedOptionalTitles.push(title);
+      }
+    }
+  });
+
+  const agreedOptionalCount = agreedOptionalTitles.length;
+  const hasOptional = agreedOptionalCount > 0;
+  const isOnlyRequired = !hasOptional;
+
+  return {
+    hasOptional,
+    isOnlyRequired,
+    agreedOptionalCount,
+    agreedOptionalTitles
+  };
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -51,6 +105,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 }) => {
   const [records, setRecords] = useState<SignedConsentRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [consentFilter, setConsentFilter] = useState<ConsentFilterType>('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadSuccessMsg, setDownloadSuccessMsg] = useState<string | null>(null);
@@ -182,10 +237,40 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Stats
+  // Pre-calculate analyzed data for all records
+  const recordsWithAnalysis = useMemo(() => {
+    return records.map(record => ({
+      record,
+      analysis: analyzePatientConsent(record, consentSettings)
+    }));
+  }, [records, consentSettings]);
+
+  // Counts
+  const totalCount = records.length;
+  const optionalCount = useMemo(() => {
+    return recordsWithAnalysis.filter(item => item.analysis.hasOptional).length;
+  }, [recordsWithAnalysis]);
+  const requiredOnlyCount = totalCount - optionalCount;
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayCount = records.filter(r => r.signed_date === todayStr || r.signed_at?.startsWith(todayStr)).length;
-  const totalCount = records.length;
+
+  // Filtered records based on active consent filter
+  const displayedItems = useMemo(() => {
+    if (consentFilter === 'optional') {
+      return recordsWithAnalysis.filter(item => item.analysis.hasOptional);
+    }
+    if (consentFilter === 'required_only') {
+      return recordsWithAnalysis.filter(item => item.analysis.isOnlyRequired);
+    }
+    return recordsWithAnalysis;
+  }, [recordsWithAnalysis, consentFilter]);
+
+  // Preview record analysis
+  const previewAnalysis = useMemo(() => {
+    if (!previewRecord) return null;
+    return analyzePatientConsent(previewRecord, consentSettings);
+  }, [previewRecord, consentSettings]);
 
   return (
     <div className="admin-view-container animate-fade-in">
@@ -242,7 +327,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div>
           <h2 className="admin-title">관리자 모드 (원무과 동의서 보관함)</h2>
           <p className="admin-subtitle">
-            환자가 서명 완료한 동의서(PDF) 목록을 실시간 조회 및 인쇄·다운로드하고 병원 기본 정보와 약관을 설정할 수 있습니다.
+            환자가 서명 완료한 동의서(PDF) 목록을 실시간 조회하고, 선택사항 동의 여부 필터링 및 인쇄·다운로드를 진행할 수 있습니다.
           </p>
         </div>
       </div>
@@ -328,55 +413,123 @@ export const AdminView: React.FC<AdminViewProps> = ({
         clinicName={clinicInput.name || clinicName}
       />
 
-      {/* Stats Cards */}
-      <div className="stats-grid">
-        <div className="stat-card">
+      {/* Enhanced Stats Cards with Filter Integration */}
+      <div className="stats-grid stats-grid-4">
+        {/* Total Documents Card */}
+        <div 
+          className={`stat-card stat-interactive ${consentFilter === 'all' ? 'active-filter-card' : ''}`}
+          onClick={() => setConsentFilter('all')}
+          title="클릭 시 전체 동의서 목록을 조회합니다"
+        >
           <div className="stat-icon-wrap primary">
-            <Calendar size={22} />
-          </div>
-          <div>
-            <span className="stat-label">오늘 서명된 동의서</span>
-            <div className="stat-val">{todayCount} <span className="stat-unit">건</span></div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon-wrap success">
             <FileText size={22} />
           </div>
-          <div>
-            <span className="stat-label">총 보관 문서 수</span>
+          <div className="stat-content-wrap">
+            <span className="stat-label">총 보관 문서</span>
             <div className="stat-val">{totalCount} <span className="stat-unit">건</span></div>
+            <span className="stat-sub-hint">전체 보기</span>
           </div>
         </div>
 
-        <div className="stat-card cursor-pointer" onClick={onOpenConfig}>
-          <div className="stat-icon-wrap info">
-            <HardDrive size={22} />
+        {/* Optional Agreed Card */}
+        <div 
+          className={`stat-card stat-interactive stat-optional-card ${consentFilter === 'optional' ? 'active-filter-card' : ''}`}
+          onClick={() => setConsentFilter('optional')}
+          title="클릭 시 선택항목에 하나라도 동의한 환자만 필터링합니다"
+        >
+          <div className="stat-icon-wrap optional-highlight">
+            <Sparkles size={22} />
           </div>
-          <div>
-            <span className="stat-label">데이터베이스 연동 상태</span>
-            <div className="stat-val-status">
-              {activeProvider === 'neon' ? (
-                <span className="text-success flex-center gap-1 font-bold">
-                  <Zap size={16} className="text-emerald-500" /> Neon Postgres (Vercel)
-                </span>
-              ) : activeProvider === 'supabase' ? (
-                <span className="text-success flex-center gap-1 font-bold">
-                  <Flame size={16} className="text-emerald-600" /> Supabase 연동됨
-                </span>
-              ) : (
-                <span className="text-warning flex-center gap-1 font-bold">
-                  로컬 보관 (클릭하여 설정)
-                </span>
-              )}
+          <div className="stat-content-wrap">
+            <div className="stat-label-with-tag">
+              <span className="stat-label">선택항목 동의</span>
+              <span className="pill-opt-mini">마케팅·안내</span>
             </div>
+            <div className="stat-val text-brand-purple">{optionalCount} <span className="stat-unit">건</span></div>
+            <span className="stat-sub-hint">
+              {totalCount > 0 ? `${Math.round((optionalCount / totalCount) * 100)}% 동의율` : '선택 동의 환자'}
+            </span>
+          </div>
+        </div>
+
+        {/* Required Only Card */}
+        <div 
+          className={`stat-card stat-interactive stat-required-card ${consentFilter === 'required_only' ? 'active-filter-card' : ''}`}
+          onClick={() => setConsentFilter('required_only')}
+          title="클릭 시 필수항목에만 동의한 환자만 필터링합니다"
+        >
+          <div className="stat-icon-wrap required-highlight">
+            <ShieldCheck size={22} />
+          </div>
+          <div className="stat-content-wrap">
+            <div className="stat-label-with-tag">
+              <span className="stat-label">필수항목만 동의</span>
+              <span className="pill-req-mini">선택 미동의</span>
+            </div>
+            <div className="stat-val text-brand-slate">{requiredOnlyCount} <span className="stat-unit">건</span></div>
+            <span className="stat-sub-hint">
+              {totalCount > 0 ? `${Math.round((requiredOnlyCount / totalCount) * 100)}% 비율` : '필수 전용 환자'}
+            </span>
+          </div>
+        </div>
+
+        {/* Today's Count */}
+        <div className="stat-card">
+          <div className="stat-icon-wrap success">
+            <Calendar size={22} />
+          </div>
+          <div className="stat-content-wrap">
+            <span className="stat-label">오늘 서명된 동의서</span>
+            <div className="stat-val text-emerald-600">{todayCount} <span className="stat-unit">건</span></div>
+            <span className="stat-sub-hint">{todayStr}</span>
           </div>
         </div>
       </div>
 
       {/* Search & Filter Bar */}
       <div className="search-filter-card">
+        <div className="filter-header-bar">
+          {/* Segmented Filter Pills */}
+          <div className="consent-filter-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={consentFilter === 'all'}
+              className={`filter-tab-btn ${consentFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setConsentFilter('all')}
+            >
+              <FileText size={15} />
+              <span>전체 문서</span>
+              <span className="tab-count-badge">{totalCount}</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={consentFilter === 'optional'}
+              className={`filter-tab-btn optional-tab ${consentFilter === 'optional' ? 'active' : ''}`}
+              onClick={() => setConsentFilter('optional')}
+            >
+              <Sparkles size={15} />
+              <span>선택사항 동의</span>
+              <span className="tab-count-badge opt-badge">{optionalCount}</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={consentFilter === 'required_only'}
+              className={`filter-tab-btn required-tab ${consentFilter === 'required_only' ? 'active' : ''}`}
+              onClick={() => setConsentFilter('required_only')}
+            >
+              <ShieldCheck size={15} />
+              <span>필수사항만 동의</span>
+              <span className="tab-count-badge req-badge">{requiredOnlyCount}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Search Input Form */}
         <form onSubmit={handleSearchSubmit} className="search-form">
           <div className="search-input-wrap">
             <Search size={18} className="search-icon" />
@@ -404,6 +557,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </button>
           )}
         </form>
+
+        {/* Active Filter Notice */}
+        {consentFilter !== 'all' && (
+          <div className="filter-active-indicator">
+            <Filter size={14} className="text-primary" />
+            <span>
+              현재 <strong>{consentFilter === 'optional' ? '선택항목 동의 환자' : '필수항목만 동의 환자'}</strong> 목록만 필터링하여 보고 있습니다.
+            </span>
+            <button
+              type="button"
+              className="btn-reset-filter"
+              onClick={() => setConsentFilter('all')}
+            >
+              필터 해제 (전체 보기)
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -420,11 +590,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <RefreshCw size={28} className="spin-icon text-primary" />
             <p>동의서 목록을 불러오는 중입니다...</p>
           </div>
-        ) : records.length === 0 ? (
+        ) : displayedItems.length === 0 ? (
           <div className="empty-state">
             <FileText size={48} className="empty-icon" />
-            <h3>보관된 동의서가 없습니다.</h3>
-            <p>환자 서명 화면에서 동의서를 작성하면 여기에 자동으로 기록됩니다.</p>
+            {consentFilter !== 'all' ? (
+              <>
+                <h3>해당 필터 조건에 맞는 동의서가 없습니다.</h3>
+                <p>
+                  {consentFilter === 'optional'
+                    ? '선택항목에 동의한 환자 기록이 없습니다.'
+                    : '필수항목만 동의한 환자 기록이 없습니다.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setConsentFilter('all')}
+                  className="btn-clear-search mt-3"
+                >
+                  전체 동의서 목록 보기
+                </button>
+              </>
+            ) : (
+              <>
+                <h3>보관된 동의서가 없습니다.</h3>
+                <p>환자 서명 화면에서 동의서를 작성하면 여기에 자동으로 기록됩니다.</p>
+              </>
+            )}
           </div>
         ) : (
           <table className="admin-table">
@@ -434,14 +624,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <th>생년월일</th>
                 <th>연락처</th>
                 <th>서명 일자</th>
-                <th>동의 현황</th>
+                <th>동의 현황 (필수 / 선택)</th>
                 <th>저장 위치</th>
                 <th className="text-right">관리 작업</th>
               </tr>
             </thead>
             <tbody>
-              {records.map(record => (
-                <tr key={record.id || record.pdf_path}>
+              {displayedItems.map(({ record, analysis }) => (
+                <tr 
+                  key={record.id || record.pdf_path} 
+                  className={analysis.hasOptional ? 'row-optional-agreed' : 'row-required-only'}
+                >
                   <td>
                     <div className="patient-name-col">
                       <strong className="name-text">{record.patient_name}</strong>
@@ -460,8 +653,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </span>
                   </td>
                   <td>
-                    <div className="agreed-tag-group">
-                      <span className="tag-req">동의 완료</span>
+                    <div className="consent-status-cell">
+                      {analysis.hasOptional ? (
+                        <div className="agreed-status-box optional-included">
+                          <div className="status-primary-badge opt-badge-highlight">
+                            <Sparkles size={12} />
+                            <span>선택 동의 {analysis.agreedOptionalCount}건</span>
+                          </div>
+                          <div className="opt-terms-chip-list">
+                            {analysis.agreedOptionalTitles.map((title, idx) => (
+                              <span 
+                                key={idx} 
+                                className="opt-term-chip" 
+                                title={`동의 항목: ${title}`}
+                              >
+                                {title.length > 15 ? `${title.slice(0, 15)}…` : title}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="agreed-status-box required-only">
+                          <div className="status-primary-badge req-only-badge">
+                            <CheckCheck size={12} />
+                            <span>필수만 동의</span>
+                          </div>
+                          <span className="text-sub-micro">선택사항 미동의</span>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -510,16 +729,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
         )}
       </div>
 
-      {/* PDF Preview Modal */}
+      {/* PDF Preview Modal with Consent Details */}
       {previewRecord && (
         <div className="modal-backdrop animate-fade-in">
           <div className="modal-card pdf-preview-modal animate-scale-up">
             <div className="modal-header">
               <div className="modal-title-wrap">
                 <FileText className="text-primary" size={20} />
-                <h3 className="modal-title">
-                  {previewRecord.patient_name} 님의 서명 동의서 미리보기
-                </h3>
+                <div>
+                  <h3 className="modal-title">
+                    {previewRecord.patient_name} 님의 서명 동의서 미리보기
+                  </h3>
+                  {previewAnalysis && (
+                    <div className="modal-consent-summary-row">
+                      {previewAnalysis.hasOptional ? (
+                        <span className="badge-opt-summary">
+                          <Sparkles size={12} />
+                          선택 동의 {previewAnalysis.agreedOptionalCount}건: {previewAnalysis.agreedOptionalTitles.join(', ')}
+                        </span>
+                      ) : (
+                        <span className="badge-req-summary">
+                          <CheckCheck size={12} />
+                          필수 동의 완료 (선택 항목 미동의)
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
@@ -642,3 +878,4 @@ export const AdminView: React.FC<AdminViewProps> = ({
     </div>
   );
 };
+
