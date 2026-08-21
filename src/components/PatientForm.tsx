@@ -72,6 +72,21 @@ export const PatientForm: React.FC<PatientFormProps> = ({
     representativeRelation: '부/모'
   });
 
+  // Separate Phone Inputs (010 prefix + rest digits)
+  const [phonePrefix, setPhonePrefix] = useState('010');
+  const [phoneRest, setPhoneRest] = useState('');
+
+  // Auto-calculated age & minor status tracking
+  const [calculatedAgeInfo, setCalculatedAgeInfo] = useState<{
+    age: number | null;
+    isUnder14: boolean;
+    autoApplied: boolean;
+  }>({
+    age: null,
+    isUnder14: false,
+    autoApplied: false
+  });
+
   // Dynamic Agreements Map initialized with required terms checked
   const [agreements, setAgreements] = useState<ConsentAgreementState>(() => {
     const initial: Record<string, boolean> = {};
@@ -100,30 +115,123 @@ export const PatientForm: React.FC<PatientFormProps> = ({
   const signaturePadRef = useRef<SignaturePadRef | null>(null);
   const printDocRef = useRef<HTMLDivElement | null>(null);
 
-  // Phone number auto-formatter
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/[^0-9]/g, '');
-    if (value.length > 11) value = value.slice(0, 11);
-
-    if (value.length > 7) {
-      value = `${value.slice(0, 3)}-${value.slice(3, 7)}-${value.slice(7)}`;
-    } else if (value.length > 3) {
-      value = `${value.slice(0, 3)}-${value.slice(3)}`;
+  // Helper: Calculate international age (만 나이) based on current date
+  const computeInternationalAge = (birthDigits: string): { age: number; isUnder14: boolean; isValid: boolean } => {
+    if (birthDigits.length !== 6 && birthDigits.length !== 8) {
+      return { age: -1, isUnder14: false, isValid: false };
     }
-    setPatientInfo(prev => ({ ...prev, phone: value }));
+
+    const now = new Date();
+    const todayYear = now.getFullYear();
+    const todayMonth = now.getMonth() + 1;
+    const todayDay = now.getDate();
+
+    let birthYear = 0;
+    let birthMonth = 0;
+    let birthDay = 0;
+
+    if (birthDigits.length === 8) {
+      birthYear = parseInt(birthDigits.slice(0, 4), 10);
+      birthMonth = parseInt(birthDigits.slice(4, 6), 10);
+      birthDay = parseInt(birthDigits.slice(6, 8), 10);
+    } else if (birthDigits.length === 6) {
+      const yy = parseInt(birthDigits.slice(0, 2), 10);
+      birthMonth = parseInt(birthDigits.slice(2, 4), 10);
+      birthDay = parseInt(birthDigits.slice(4, 6), 10);
+
+      // Interpret 2-digit year (00~currentYY = 2000s, else 1900s)
+      const currentYY = todayYear % 100;
+      birthYear = yy <= currentYY ? 2000 + yy : 1900 + yy;
+    }
+
+    // Basic date validation
+    if (birthMonth < 1 || birthMonth > 12 || birthDay < 1 || birthDay > 31 || birthYear > todayYear || birthYear < 1900) {
+      return { age: -1, isUnder14: false, isValid: false };
+    }
+
+    let age = todayYear - birthYear;
+    if (todayMonth < birthMonth || (todayMonth === birthMonth && todayDay < birthDay)) {
+      age--;
+    }
+
+    return {
+      age,
+      isUnder14: age >= 0 && age < 14,
+      isValid: true
+    };
   };
 
-  // Birth date auto-formatter (YYYY-MM-DD or 6/8 digits)
-  const handleBirthDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/[^0-9]/g, '');
-    if (value.length > 8) value = value.slice(0, 8);
+  // Phone rest handler: formats 7-8 digits (e.g. 1234-5678 or 123-4567)
+  const handlePhoneRestChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let digits = e.target.value.replace(/[^0-9]/g, '');
+    if (digits.length > 8) digits = digits.slice(0, 8);
 
-    if (value.length === 8) {
-      value = `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6)}`;
-    } else if (value.length === 6) {
-      value = `${value.slice(0, 2)}.${value.slice(2, 4)}.${value.slice(4)}`;
+    let formatted = digits;
+    if (digits.length > 4) {
+      formatted = `${digits.slice(0, 4)}-${digits.slice(4)}`;
     }
-    setPatientInfo(prev => ({ ...prev, birthDate: value }));
+
+    setPhoneRest(formatted);
+    const combined = formatted ? `${phonePrefix}-${formatted}` : '';
+    setPatientInfo(prev => ({ ...prev, phone: combined }));
+  };
+
+  const handlePhonePrefixChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPrefix = e.target.value;
+    setPhonePrefix(newPrefix);
+    const combined = phoneRest ? `${newPrefix}-${phoneRest}` : '';
+    setPatientInfo(prev => ({ ...prev, phone: combined }));
+  };
+
+  // Birth date auto-formatter (YYYY.MM.DD or 6/8 digits) + Under 14 Auto-Check
+  const handleBirthDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let digits = e.target.value.replace(/[^0-9]/g, '');
+    if (digits.length > 8) digits = digits.slice(0, 8);
+
+    let formatted = digits;
+    if (digits.length === 8) {
+      formatted = `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6)}`;
+    } else if (digits.length === 6) {
+      formatted = `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+    }
+
+    setPatientInfo(prev => {
+      const next = { ...prev, birthDate: formatted };
+
+      // Calculate international age if valid length
+      if (digits.length === 6 || digits.length === 8) {
+        const ageResult = computeInternationalAge(digits);
+        if (ageResult.isValid) {
+          if (ageResult.isUnder14) {
+            // Automatically check minor legal representative
+            next.isMinor = true;
+            setCalculatedAgeInfo({
+              age: ageResult.age,
+              isUnder14: true,
+              autoApplied: true
+            });
+          } else {
+            // If was auto-applied previously, revert when age >= 14
+            setCalculatedAgeInfo(prevAge => {
+              if (prevAge.autoApplied) {
+                next.isMinor = false;
+              }
+              return {
+                age: ageResult.age,
+                isUnder14: false,
+                autoApplied: false
+              };
+            });
+          }
+        } else {
+          setCalculatedAgeInfo({ age: null, isUnder14: false, autoApplied: false });
+        }
+      } else {
+        setCalculatedAgeInfo({ age: null, isUnder14: false, autoApplied: false });
+      }
+
+      return next;
+    });
   };
 
   // Master Agree All
@@ -297,11 +405,16 @@ export const PatientForm: React.FC<PatientFormProps> = ({
             <div className="form-group">
               <label className="form-label">
                 생년월일 <span className="text-sub">(6자리 또는 8자리)</span>
+                {calculatedAgeInfo.age !== null && (
+                  <span className={`age-badge-tag ${calculatedAgeInfo.isUnder14 ? 'age-minor' : 'age-adult'}`}>
+                    만 {calculatedAgeInfo.age}세 {calculatedAgeInfo.isUnder14 ? '(만 14세 미만)' : ''}
+                  </span>
+                )}
               </label>
               <div className="input-wrapper">
                 <input
                   type="text"
-                  placeholder="예: 950312 또는 1995.03.12"
+                  placeholder="예: 20150512 또는 150512"
                   value={patientInfo.birthDate}
                   onChange={handleBirthDateChange}
                   className="form-input"
@@ -312,28 +425,59 @@ export const PatientForm: React.FC<PatientFormProps> = ({
 
             <div className="form-group">
               <label className="form-label">
-                휴대전화 번호 <span className="text-sub">(예약/안내)</span>
+                휴대전화 번호 <span className="text-sub">(예약 및 알림 안내)</span>
               </label>
-              <div className="input-wrapper">
-                <Phone size={16} className="input-icon" />
-                <input
-                  type="tel"
-                  placeholder="010-1234-5678"
-                  value={patientInfo.phone}
-                  onChange={handlePhoneChange}
-                  className="form-input with-icon"
-                />
+              <div className="phone-split-container">
+                <div className="phone-prefix-select-wrap">
+                  <select
+                    value={phonePrefix}
+                    onChange={handlePhonePrefixChange}
+                    className="form-select phone-prefix-select"
+                    aria-label="휴대전화 앞자리 식별번호"
+                  >
+                    <option value="010">010</option>
+                    <option value="011">011</option>
+                    <option value="016">016</option>
+                    <option value="017">017</option>
+                    <option value="018">018</option>
+                    <option value="019">019</option>
+                  </select>
+                </div>
+                <span className="phone-dash-separator">-</span>
+                <div className="phone-rest-input-wrap">
+                  <input
+                    type="tel"
+                    placeholder="1234-5678 (뒷자리 입력)"
+                    value={phoneRest}
+                    onChange={handlePhoneRestChange}
+                    className="form-input phone-rest-input"
+                    maxLength={9}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Minor / Legal Representative toggle */}
+          {/* Minor / Legal Representative toggle with automatic feedback */}
           <div className="minor-toggle-box">
+            {calculatedAgeInfo.isUnder14 && (
+              <div className="minor-auto-alert animate-fade-in">
+                <ShieldCheck size={16} className="text-primary" />
+                <span>
+                  생년월일 기준 <strong>만 {calculatedAgeInfo.age}세 (만 14세 미만 아동·청소년)</strong>로 확인되어 법정대리인(보호자) 동의가 자동으로 선택되었습니다.
+                </span>
+              </div>
+            )}
+
             <label className="checkbox-label cursor-pointer">
               <input
                 type="checkbox"
                 checked={patientInfo.isMinor}
-                onChange={e => setPatientInfo(prev => ({ ...prev, isMinor: e.target.checked }))}
+                onChange={e => {
+                  setPatientInfo(prev => ({ ...prev, isMinor: e.target.checked }));
+                  // If user manually changed it, clear auto applied flag
+                  setCalculatedAgeInfo(prev => ({ ...prev, autoApplied: false }));
+                }}
                 className="hidden-checkbox"
               />
               <span className="custom-checkbox">
